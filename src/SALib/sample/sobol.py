@@ -15,6 +15,7 @@ def sample(
     calc_second_order: bool = True,
     scramble: bool = True,
     skip_values: int = 0,
+    base_sequence: Optional[np.ndarray] = None,
     seed: Optional[Union[int, np.random.Generator]] = None,
 ):
     """Generates model inputs using Saltelli's extension of the Sobol' sequence.
@@ -67,6 +68,10 @@ def sample(
         It's recommended not to change this value and use `scramble` instead.
         `scramble` and `skip_values` can be used together.
         Default is 0.
+    base_sequence : array_like
+        If `base_sequence` is None the Sobol' low discrepancy sequence is used
+        as a base to generate the sample needed for the Sobol' indices method.
+        Otherwise, provide a sample of shape ``(2 * D, N)``.
     seed : {None, int, `numpy.random.Generator`}, optional
         If `seed` is None the `numpy.random.Generator` generator is used.
         If `seed` is an int, a new ``Generator`` instance is used,
@@ -104,36 +109,44 @@ def sample(
     groups = _check_groups(problem)
 
     # Create base sequence - could be any type of sampling
-    qrng = qmc.Sobol(d=2 * D, scramble=scramble, seed=seed)
-
-    # fast-forward logic
-    if skip_values > 0 and isinstance(skip_values, int):
-        M = skip_values
-        if not ((M & (M - 1) == 0) and (M != 0 and M - 1 != 0)):
-            msg = f"""
-            Convergence properties of the Sobol' sequence is only valid if
-            `skip_values` ({M}) is a power of 2.
-            """
-            warnings.warn(msg, stacklevel=2)
-
-        # warning when N > skip_values
-        # see https://github.com/scipy/scipy/pull/10844#issuecomment-673029539
-        n_exp = int(np.log2(N))
-        m_exp = int(np.log2(M))
-        if n_exp > m_exp:
-            msg = (
-                "Convergence may not be valid as the number of "
-                "requested samples is"
-                f" > `skip_values` ({N} > {M})."
-            )
-            warnings.warn(msg, stacklevel=2)
-
-        qrng.fast_forward(M)
-    elif skip_values < 0 or not isinstance(skip_values, int):
-        raise ValueError("`skip_values` must be a positive integer.")
-
     # sample Sobol' sequence
-    base_sequence = qrng.random(N)
+    if base_sequence is None:
+        qrng = qmc.Sobol(d=2 * D, scramble=scramble, seed=seed)
+
+        # fast-forward logic
+        if skip_values > 0 and isinstance(skip_values, int):
+            M = skip_values
+            if not ((M & (M - 1) == 0) and (M != 0 and M - 1 != 0)):
+                msg = f"""
+                Convergence properties of the Sobol' sequence is only valid if
+                `skip_values` ({M}) is a power of 2.
+                """
+                warnings.warn(msg, stacklevel=2)
+
+            # warning when N > skip_values
+            # see https://github.com/scipy/scipy/pull/10844#issuecomment-673029539
+            n_exp = int(np.log2(N))
+            m_exp = int(np.log2(M))
+            if n_exp > m_exp:
+                msg = (
+                    "Convergence may not be valid as the number of "
+                    "requested samples is"
+                    f" > `skip_values` ({N} > {M})."
+                )
+                warnings.warn(msg, stacklevel=2)
+
+            qrng.fast_forward(M)
+        elif skip_values < 0 or not isinstance(skip_values, int):
+            raise ValueError("`skip_values` must be a positive integer.")
+
+        base_sequence = qrng.random(N)
+    else:
+        target_shape = (2 * D, N)
+        if base_sequence.shape != target_shape:
+            raise ValueError(
+                f"Incorrect 'base_sequence' shape {base_sequence.shape}. "
+                f"It must be {target_shape}"
+            )
 
     if not groups:
         Dg = problem["num_vars"]
